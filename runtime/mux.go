@@ -1,11 +1,16 @@
 package runtime
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"net/textproto"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/golang/protobuf/proto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
@@ -146,6 +151,34 @@ func (s *ServeMux) Handle(meth string, pat Pattern, h HandlerFunc) {
 
 // ServeHTTP dispatches the request to the first handler whose pattern matches to r.Method and r.Path.
 func (s *ServeMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	// log.Printf("Got request: %#v\n", r)
+	if strings.ToLower(strings.Split(r.Header.Get("Content-Type"), ";")[0]) == "application/x-www-form-urlencoded" {
+		log.Println("Rewriting form data as json")
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			log.Println("Bad form request", err.Error())
+			return
+		}
+		spew.Dump(r.Form)
+		jsonMap := make(map[string]interface{}, len(r.Form))
+		for k, v := range r.Form {
+			if len(v) > 0 {
+				jsonMap[k] = v[0]
+			}
+		}
+		spew.Dump(jsonMap)
+		jsonBody, err := json.Marshal(jsonMap)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+
+		r.Body = ioutil.NopCloser(bytes.NewReader(jsonBody))
+		spew.Dump(string(jsonBody))
+		r.ContentLength = int64(len(jsonBody))
+		r.Header.Set("Content-Type", "application/json")
+	}
+
 	ctx := r.Context()
 
 	path := r.URL.Path
